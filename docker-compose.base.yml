@@ -1,0 +1,525 @@
+# Copyright © 2020-2023 Intel Corporation. All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
+
+version: '3.7'
+
+networks:
+  edgex-network:
+    driver: bridge
+
+volumes:
+  consul-config:
+    name: edgex_consul-config
+  consul-data:
+    name: edgex_consul-data
+  db-data:
+    name: edgex_db-data
+  ledger: {}
+  inventory: {}
+
+services:
+  consul:
+    command:
+      - agent
+      - -ui
+      - -bootstrap
+      - -server
+      - -client
+      - 0.0.0.0
+    container_name: edgex-core-consul
+    hostname: edgex-core-consul
+    image: hashicorp/consul:1.16.2
+    networks:
+      edgex-network: {}
+    ports:
+      - mode: ingress
+        host_ip: 127.0.0.1
+        target: 8500
+        published: "8500"
+        protocol: tcp
+    read_only: true
+    restart: always
+    security_opt:
+      - no-new-privileges:true
+    user: root:root
+    volumes:
+      - type: volume
+        source: consul-config
+        target: /consul/config
+      - type: volume
+        source: consul-data
+        target: /consul/data
+
+  database:
+    container_name: edgex-redis
+    hostname: edgex-redis
+    image: redis:7.0.14-alpine
+    networks:
+      edgex-network: {}
+    ports:
+      - mode: ingress
+        host_ip: 127.0.0.1
+        target: 6379
+        published: "6379"
+        protocol: tcp
+    read_only: true
+    restart: always
+    security_opt:
+      - no-new-privileges:true
+    user: root:root
+    volumes:
+      - type: volume
+        source: db-data
+        target: /data
+
+  support-notifications:
+    container_name: edgex-support-notifications
+    depends_on:
+      consul:
+        condition: service_started
+      database:
+        condition: service_started
+    environment:
+      EDGEX_SECURITY_SECRET_STORE: "false"
+      SERVICE_HOST: edgex-support-notifications
+    hostname: edgex-support-notifications
+    image: edgexfoundry/support-notifications:3.1.0
+    networks:
+      edgex-network: {}
+    ports:
+      - mode: ingress
+        host_ip: 127.0.0.1
+        target: 59860
+        published: "59860"
+        protocol: tcp
+    read_only: true
+    restart: always
+    security_opt:
+      - no-new-privileges:true
+    user: 2002:2001
+
+  core-metadata:
+    container_name: edgex-core-metadata
+    depends_on:
+      consul:
+        condition: service_started
+      database:
+        condition: service_started
+    environment:
+      EDGEX_SECURITY_SECRET_STORE: "false"
+      SERVICE_HOST: edgex-core-metadata
+    hostname: edgex-core-metadata
+    image: edgexfoundry/core-metadata:3.1.0
+    networks:
+      edgex-network: {}
+    ports:
+      - mode: ingress
+        host_ip: 127.0.0.1
+        target: 59881
+        published: "59881"
+        protocol: tcp
+    read_only: true
+    restart: always
+    security_opt:
+      - no-new-privileges:true
+    user: 2002:2001
+
+  core-data:
+    container_name: edgex-core-data
+    depends_on:
+      consul:
+        condition: service_started
+      core-metadata:
+        condition: service_started
+      database:
+        condition: service_started
+    environment:
+      EDGEX_SECURITY_SECRET_STORE: "false"
+      SERVICE_HOST: edgex-core-data
+    hostname: edgex-core-data
+    image: edgexfoundry/core-data:3.1.0
+    networks:
+      edgex-network: {}
+    ports:
+      - mode: ingress
+        host_ip: 127.0.0.1
+        target: 59880
+        published: "59880"
+        protocol: tcp
+    read_only: true
+    restart: always
+    security_opt:
+      - no-new-privileges:true
+    user: 2002:2001
+
+  core-command:
+    container_name: edgex-core-command
+    depends_on:
+      consul:
+        condition: service_started
+      core-metadata:
+        condition: service_started
+      database:
+        condition: service_started
+    environment:
+      EDGEX_SECURITY_SECRET_STORE: "false"
+      EXTERNALMQTT_URL: tcp://edgex-mqtt-broker:1883
+      SERVICE_HOST: edgex-core-command
+    hostname: edgex-core-command
+    image: edgexfoundry/core-command:3.1.0
+    networks:
+      edgex-network: {}
+    ports:
+      - mode: ingress
+        host_ip: 127.0.0.1
+        target: 59882
+        published: "59882"
+        protocol: tcp
+    read_only: true
+    restart: always
+    security_opt:
+      - no-new-privileges:true
+    user: 2002:2001
+
+  core-common-config-bootstrapper:
+    container_name: edgex-core-common-config-bootstrapper
+    depends_on:
+      consul:
+        condition: service_started
+    environment:
+      ALL_SERVICES_DATABASE_HOST: edgex-redis
+      ALL_SERVICES_MESSAGEBUS_HOST: edgex-redis
+      ALL_SERVICES_REGISTRY_HOST: edgex-core-consul
+      APP_SERVICES_CLIENTS_CORE_METADATA_HOST: edgex-core-metadata
+      DEVICE_SERVICES_CLIENTS_CORE_METADATA_HOST: edgex-core-metadata
+      EDGEX_SECURITY_SECRET_STORE: "false"
+    hostname: edgex-core-common-config-bootstrapper
+    image: edgexfoundry/core-common-config-bootstrapper:3.1.0
+    networks:
+      edgex-network: {}
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    user: 2002:2001
+
+  mqtt-broker:
+    command:
+      - /usr/sbin/mosquitto
+      - -c
+      - /mosquitto-no-auth.conf
+    container_name: edgex-mqtt-broker
+    hostname: edgex-mqtt-broker
+    image: eclipse-mosquitto:2.0.18
+    networks:
+      edgex-network: {}
+    ports:
+      - mode: ingress
+        host_ip: 127.0.0.1
+        target: 1883
+        published: "1883"
+        protocol: tcp
+    read_only: true
+    restart: always
+    security_opt:
+      - no-new-privileges:true
+    user: 2002:2001
+
+  device-mqtt:
+    container_name: edgex-device-mqtt
+    depends_on:
+      consul:
+        condition: service_started
+      core-data:
+        condition: service_started
+      core-metadata:
+        condition: service_started
+      mqtt-broker:
+        condition: service_started
+    environment:
+      EDGEX_SECURITY_SECRET_STORE: "false"
+      MQTTBROKERINFO_HOST: edgex-mqtt-broker
+      SERVICE_HOST: edgex-device-mqtt
+      MQTTBROKERINFO_INCOMINGTOPIC: Inference/DataTopic/#
+      MQTTBROKERINFO_RESPONSETOPIC: Inference/ResponseTopic/#
+    hostname: edgex-device-mqtt
+    image: edgexfoundry/device-mqtt:3.1.0
+    networks:
+      edgex-network: {}
+    ports:
+      - mode: ingress
+        host_ip: 127.0.0.1
+        target: 59982
+        published: "59982"
+        protocol: tcp
+    read_only: true
+    restart: always
+    security_opt:
+      - no-new-privileges:true
+    user: 2002:2001
+    volumes:
+      - ./res/device-mqtt/devices:/res/devices
+      - ./res/device-mqtt/profiles:/res/profiles
+
+  ui:
+    container_name: edgex-ui-go
+    environment:
+      EDGEX_SECURITY_SECRET_STORE: "false"
+      SERVICE_HOST: edgex-ui-go
+    hostname: edgex-ui-go
+    image: nexus3.edgexfoundry.org:10004/edgex-ui:3.1.0
+    networks:
+      edgex-network: {}
+    ports:
+      - mode: ingress
+        target: 4000
+        published: "4000"
+        protocol: tcp
+    read_only: true
+    restart: always
+    security_opt:
+      - no-new-privileges:true
+    user: 2002:2001
+    volumes:
+      - type: bind
+        source: /etc/localtime
+        target: /etc/localtime
+        read_only: true
+        bind:
+          create_host_path: true
+
+  ms-authentication:
+    container_name: automated-vending_ms-authentication
+    depends_on:
+      core-data:
+        condition: service_started
+      core-command:
+        condition: service_started
+    environment:
+      EDGEX_SECURITY_SECRET_STORE: "false"
+      SERVICE_HOST: ms-authentication
+    hostname: ms-authentication
+    image: automated-vending/ms-authentication:dev
+    networks:
+      edgex-network: {}
+    ports:
+      - 48096:48096/tcp
+    restart: always
+    ipc: none
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      options:
+        max-file: "5"
+        max-size: 100m
+    user: 2002:2001
+
+  ms-inventory:
+    image: automated-vending/ms-inventory:dev
+    container_name: automated-vending_ms-inventory
+    depends_on:
+      core-data:
+        condition: service_started
+      core-command:
+        condition: service_started
+    environment:
+      EDGEX_SECURITY_SECRET_STORE: "false"
+      SERVICE_HOST: ms-inventory
+    hostname: ms-inventory
+    networks:
+      edgex-network: {}
+    ports:
+      - 48095:48095/tcp
+    read_only: true
+    volumes:
+      - inventory:/tmp/
+    restart: always
+    ipc: none
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      options:
+        max-file: "5"
+        max-size: 100m
+    user: "2000:2000"
+
+  ms-ledger:
+    image: automated-vending/ms-ledger:dev
+    container_name: automated-vending_ms-ledger
+    depends_on:
+      core-data:
+        condition: service_started
+      core-command:
+        condition: service_started
+    environment:
+      EDGEX_SECURITY_SECRET_STORE: "false"
+      SERVICE_HOST: ms-ledger
+      APPLICATIONSETTINGS_INVENTORYENDPOINT: "http://ms-inventory:48095/inventory"
+    hostname: ms-ledger
+    networks:
+      edgex-network: {}
+    ports:
+      - 127.0.0.1:48093:48093/tcp
+    read_only: true
+    volumes:
+      - ledger:/tmp/
+    restart: always
+    ipc: none
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      options:
+        max-file: "5"
+        max-size: 100m
+    user: "2000:2000"
+
+  ds-card-reader:
+    image: automated-vending/ds-card-reader:dev
+    container_name: automated-vending_ds-card-reader
+    depends_on:
+      core-data:
+        condition: service_started
+      core-command:
+        condition: service_started
+      consul:
+        condition: service_started
+    environment:
+      EDGEX_SECURITY_SECRET_STORE: "false"
+      SERVICE_HOST: ds-card-reader
+      DRIVERCONFIG_SIMULATEDEVICE: "true"
+      DRIVERCONFIG_DEVICESEARCHPATH: "/dev/input/event*"
+      DRIVERCONFIG_VID: "65535"
+      DRIVERCONFIG_PID: "53"
+    hostname: ds-card-reader
+    networks:
+      edgex-network: {}
+    ports:
+      - 127.0.0.1:48098:48098/tcp
+    restart: always
+    ipc: none
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      options:
+        max-file: "5"
+        max-size: 100m
+    user: "2000:2000"
+
+  ds-controller-board:
+    image: automated-vending/ds-controller-board:dev
+    container_name: automated-vending-controller-board
+    depends_on:
+      core-data:
+        condition: service_started
+      core-command:
+        condition: service_started
+      consul:
+        condition: service_started
+    environment:
+      EDGEX_SECURITY_SECRET_STORE: "false"
+      SERVICE_HOST: ds-controller-board
+      DRIVERCONFIG_VIRTUALCONTROLLERBOARD: "true"
+      DRIVERCONFIG_VID: "2341"
+      DRIVERCONFIG_PID: "0037"
+    hostname: ds-controller-board
+    networks:
+      edgex-network: {}
+    ports:
+      - 127.0.0.1:48097:48097/tcp
+    restart: always
+    ipc: none
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      options:
+        max-file: "5"
+        max-size: 100m
+    user: "2000:2000"
+
+  ds-cv-inference:
+    image: automated-vending/ds-cv-inference:dev
+    container_name: automated-vending_ds-cv-inference
+    command: ["/go/src/ds-cv-inference/images", "mqtt-broker:1883", "0.85", "/go/src/ds-cv-inference/skumapping.json"]
+    depends_on:
+      mqtt-broker:
+        condition: service_started
+    hostname: ds-cv-inference
+    networks:
+      edgex-network: {}
+    ports:
+      - 127.0.0.1:9005:9005/tcp
+    restart: always
+    ipc: none
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      options:
+        max-file: "5"
+        max-size: 100m
+    user: "2000:2000"
+
+  as-vending:
+    image: automated-vending/as-vending:dev
+    container_name: automated-vending_as-vending
+    depends_on:
+      core-data:
+        condition: service_started
+      core-command:
+        condition: service_started
+      consul:
+        condition: service_started
+    environment:
+      CLIENTS_CORE_COMMAND_HOST: edgex-core-command
+      EDGEX_SECURITY_SECRET_STORE: "false"
+      SERVICE_HOST: as-vending
+      VENDING_AUTHENTICATIONENDPOINT: http://ms-authentication:48096/authentication
+      VENDING_INVENTORYAUDITLOGSERVICE: http://ms-inventory:48095/auditlog
+      VENDING_INVENTORYSERVICE: http://ms-inventory:48095/inventory/delta
+      VENDING_LEDGERSERVICE: http://ms-ledger:48093/ledger
+    hostname: as-vending
+    networks:
+      edgex-network: {}
+    ports:
+      - 127.0.0.1:48099:48099/tcp
+    restart: always
+    ipc: none
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      options:
+        max-file: "5"
+        max-size: 100m
+    user: "2000:2000"
+
+  as-controller-board-status:
+    image: automated-vending/as-controller-board-status:dev
+    container_name: automated-vending_as-controller-board-status
+    depends_on:
+      core-data:
+        condition: service_started
+      core-command:
+        condition: service_started
+      consul:
+        condition: service_started
+    environment:
+      CLIENTS_CORE_COMMAND_HOST: edgex-core-command
+      CLIENTS_SUPPORT_NOTIFICATIONS_HOST: edgex-support-notifications
+      EDGEX_SECURITY_SECRET_STORE: "false"
+      SERVICE_HOST: as-controller-board-status
+      CONTROLLERBOARDSTATUS_VENDINGENDPOINT: "http://as-vending:48099/boardStatus"
+      CONTROLLERBOARDSTATUS_MAXTEMPERATURETHRESHOLD: "83"
+      CONTROLLERBOARDSTATUS_MINTEMPERATURETHRESHOLD: "10"
+    hostname: as-controller-board-status
+    networks:
+      edgex-network: {}
+    ports:
+      - 127.0.0.1:48094:48094/tcp
+    restart: always
+    ipc: none
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      options:
+        max-file: "5"
+        max-size: 100m
+    user: "2000:2000"

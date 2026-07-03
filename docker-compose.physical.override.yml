@@ -1,0 +1,22 @@
+# Copyright © 2020-2023 Intel Corporation. All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
+
+services:
+  ds-card-reader:
+    environment:
+      DRIVERCONFIG_SIMULATEDEVICE: "false"
+      DRIVERCONFIG_DEVICESEARCHPATH: "/dev/input/event*"
+      DRIVERCONFIG_VID: "65535"
+      DRIVERCONFIG_PID: "53"
+    user: "0:0"
+    devices:
+      - /dev/input:/dev/input
+
+  ds-controller-board:
+    environment:
+      DRIVERCONFIG_VIRTUALCONTROLLERBOARD: "false"
+      DRIVERCONFIG_VID: "2341"
+      DRIVERCONFIG_PID: "0037"
+    user: "0:0"
+    devices:
+      - /dev/ttyACM0:/dev/ttyACM0
